@@ -1,0 +1,65 @@
+LYRIA-Learning Your Responsive Intelligent Assistant
+
+
+
+Subjects(s.no, subject , year, sem, regulation );
+Student(s.no, roll.no , name,regulation , password);
+SubjectData ( subject, year , sem , PDF's_path, regulation);
+
+****
+Students.regulation → matches Subjects.regulation
+
+Subjects.subject_name → matches SubjectData.subject_name
+
+SubjectData.pdf_path stores file paths to PDFs (e.g., "materials/Reg2021/Maths1.pdf")
+
+
+******
+Option A – Web Chatbot
+Frontend: HTML + CSS + JS (chat UI)
+
+Backend: Node.js / Python Flask / PHP
+
+Database: MySQL / PostgreSQL
+
+Storage: Local server folder for PDFs
+
+PDF Access: Serve through a secure API route (e.g., /download/:id)
+
+
+******
+1. High-Level Architecture
+Frontend (React)
+
+Chatbot UI (student can type naturally)
+
+Login + verification screen
+
+PDF viewer or download button
+
+Backend (Node.js / Express)
+
+Handles roll number verification & password generation
+
+Connects to MySQL/PostgreSQL
+
+Fetches PDF links from SubjectData table
+
+AI query processing (using an LLM API or local model)
+
+AI Layer
+
+Understands student queries (e.g., "Give me 2nd-year maths notes for Reg2021")
+
+Extracts subject, year, regulation from free-text messages
+
+Can suggest related PDFs if exact match is not found
+
+Database
+
+Stores student details, subjects, and PDF paths (your current schema with small tweaks)
+-------------------------------------------------------
+MySQL password:Sanjayrajst@231
+--------------------------------------
+password: fsdproject
+username:sanjayrajspidy_db_user
