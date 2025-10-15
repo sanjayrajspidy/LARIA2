@@ -1,0 +1,23 @@
+.center-nav button.active {
+  background: #00d4ff;
+  color: #000;
+  border-color: #00d4ff;
+}
+
+.data-section {
+  background: rgba(30,30,40,0.8);
+  padding: 20px;
+  border-radius: 10px;
+  margin-top: 20px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th, .admin-table td {
+  border: 1px solid #555;
+  padding: 8px;
+  text-align: center;
+}

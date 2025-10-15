@@ -10,10 +10,15 @@ function Register({ onClose, onRegisterSuccess }) {
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
-    if (!username.trim() || !password.trim() || !branch.trim() || !year.trim()) {
-      alert("⚠️ Please fill all fields!");
+    if (role === "admin" && (!username.trim() || !password.trim() || !branch.trim())) {
+      alert(" Please fill all fields except year for admin!");
       return;
     }
+    if (role === "student" && (!username.trim() || !password.trim() || !branch.trim() || !year.trim())) {
+      alert(" Please fill all fields!");
+      return;
+    }
+
 
     try {
       setLoading(true);
@@ -70,21 +75,26 @@ function Register({ onClose, onRegisterSuccess }) {
           onChange={(e) => setBranch(e.target.value)}
           placeholder="E.g. CSE, ECE, MECH"
         />
-
-        <label>Year</label>
-        <select value={year} onChange={(e) => setYear(e.target.value)}>
-          <option value="">Select Year</option>
-          <option value="1">1st Year</option>
-          <option value="2">2nd Year</option>
-          <option value="3">3rd Year</option>
-          <option value="4">4th Year</option>
-        </select>
-
-        <label>Role</label>
+         <label>Role</label>
         <select value={role} onChange={(e) => setRole(e.target.value)}>
           <option value="student">Student</option>
           <option value="admin">Admin</option>
         </select>
+
+        {role === "student" && (
+          <>
+            <label>Year</label>
+            <select value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value="">Select Year</option>
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
+          </>
+        )}
+
+
 
         <div className="login-actions">
           <button onClick={handleRegister} disabled={loading}>

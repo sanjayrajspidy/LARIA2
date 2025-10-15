@@ -6,6 +6,10 @@ const cors = require('cors');
 const Pdf = require('./models/Pdf');
 const User = require('./models/User');
 const Activity = require('./models/Activity');
+const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
+
 
 const app = express();
 
@@ -13,7 +17,6 @@ const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-const path = require('path');
 app.use('/pdfs', express.static(path.join('E:/fsd lab/fsd project/database')));
 console.log("Serving PDFs from:", path.join('E:/fsd lab/fsd project/database'));
 
@@ -36,14 +39,20 @@ mongoose.connect(MONGO_URI)
 });
 
 
+
 // === REGISTER ===
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password, role, branch, year } = req.body;
 
-    if (!username || !password || !branch || !year) {
-      return res.status(400).json({ ok: false, error: "Username, password, branch and year are required" });
+    if (role === "admin" && (!username || !password || !branch)) {
+      return res.status(400).json({ ok: false, error: "Username, password, and branch are required for admin" });
     }
+
+    if (role === "student" && (!username || !password || !branch || !year)) {
+      return res.status(400).json({ ok: false, error: "All fields are required for student" });
+    }
+
 
     // prevent duplicate usernames
     const existing = await User.findOne({ username });
@@ -87,6 +96,60 @@ app.post('/api/login', async (req, res) => {
     });
   } catch (err) {
     console.error("Login error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// === Get Students with Last Activity ===
+app.get("/api/students-with-activity", async (req, res) => {
+  try {
+    const { branch } = req.query;
+    if (!branch) return res.status(400).json({ ok: false, error: "Branch is required" });
+
+    // Fetch students of this branch
+    const students = await User.find({ branch, role: "student" }).lean();
+
+    // Fetch last activity per student
+    const activities = await Activity.aggregate([
+      { $match: { branch } },
+      { $sort: { timestamp: -1 } },
+      {
+        $group: {
+          _id: "$username",
+          lastAction: { $first: "$action" },
+          lastPdfId: { $first: "$pdfId" },
+          lastTime: { $first: "$timestamp" }
+        }
+      }
+    ]);
+
+    // Convert list to map for fast lookup
+    const activityMap = {};
+    for (const act of activities) activityMap[act._id] = act;
+
+    // Join both datasets
+    const result = await Promise.all(
+      students.map(async (s) => {
+        const a = activityMap[s.username];
+        let pdfName = "";
+        if (a?.lastPdfId) {
+          const pdf = await Pdf.findById(a.lastPdfId).lean();
+          pdfName = pdf?.subject || "";
+        }
+        return {
+          username: s.username,
+          branch: s.branch,
+          year: s.year,
+          lastAction: a?.lastAction || "—",
+          lastPdf: pdfName || "—",
+          lastTime: a?.lastTime || "—"
+        };
+      })
+    );
+
+    res.json({ ok: true, students: result });
+  } catch (err) {
+    console.error("Error fetching students with activity:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -318,6 +381,112 @@ app.post('/api/test-parse', (req, res) => {
 });
 app.get('/test', (req, res) => {
   res.send('✅ Backend is reachable');
+});
+
+// === Dynamic PDF Management (Auto Folder Creation: regulation/year/subject) ===
+const ROOT_DIR = "E:/fsd lab/fsd project/database";
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    try {
+      const { regulation, year, subject } = req.body;
+
+      if (!regulation || !year || !subject) {
+        console.log("❌ Missing field:", { regulation, year, subject });
+        return cb(new Error("Missing regulation, year, or subject"));
+      }
+
+      const folderPath = path.join(ROOT_DIR, regulation.toLowerCase(), `${year}year`, subject.toLowerCase());
+      fs.mkdirSync(folderPath, { recursive: true }); // ✅ Creates nested folders
+      cb(null, folderPath);
+    } catch (err) {
+      console.error("❌ Folder creation failed:", err);
+      cb(err);
+    }
+  },
+
+  filename: (req, file, cb) => {
+    cb(null, file.originalname); // Keep original name
+  },
+});
+
+const upload = multer({ storage });
+
+// 📤 Upload PDF API
+app.post("/api/upload-pdf", upload.single("pdf"), async (req, res) => {
+  try {
+    const { subject, year, regulation } = req.body;
+
+    if (!req.file || !subject || !year || !regulation) {
+      return res.status(400).json({ ok: false, error: "Missing fields" });
+    }
+
+    const relativePath = path.relative(ROOT_DIR, req.file.path).replace(/\\/g, "/");
+    const pdfUrl = `http://localhost:${PORT}/pdfs/${relativePath}`;
+
+    const newPdf = new Pdf({
+      subject,
+      year,
+      regulation,
+      pdfUrl,
+      name: req.file.originalname,
+    });
+
+    await newPdf.save();
+
+    res.json({
+      ok: true,
+      message: "✅ PDF uploaded successfully!",
+      pdf: newPdf,
+      storedPath: relativePath,
+    });
+  } catch (err) {
+    console.error("Error uploading PDF:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// === Fetch All PDFs ===
+app.get("/api/all-pdfs", async (req, res) => {
+  try {
+    const pdfs = await Pdf.find().sort({ createdAt: -1 }).lean();
+    res.json({ ok: true, pdfs });
+  } catch (err) {
+    console.error("Error fetching PDFs:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// === Delete PDF ===
+app.delete("/api/delete-pdf/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const pdf = await Pdf.findById(id);
+
+    if (!pdf) return res.status(404).json({ ok: false, error: "PDF not found" });
+
+    // Delete file from filesystem
+    const filePath = path.join("E:/fsd lab/fsd project/database", pdf.pdfUrl.split("/pdfs/")[1]);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log(`🗑️ Deleted file: ${filePath}`);
+    }
+
+    // Delete from MongoDB
+    await Pdf.findByIdAndDelete(id);
+
+    res.json({ ok: true, message: "✅ PDF deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting PDF:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+
+// 🧱 Global error handler to avoid HTML error pages
+app.use((err, req, res, next) => {
+  console.error("🔥 Unhandled error:", err);
+  res.status(500).json({ ok: false, error: err.message });
 });
 
 // Start server

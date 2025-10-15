@@ -27,12 +27,13 @@ function Login({ onClose, onLoginSuccess }) {
       console.log("Login response:", data);
 
       if (data.ok) {
-        onLoginSuccess(data.username, data.role);
+        onLoginSuccess(data.username, data.role, data.branch);
+
       } else {
-        alert("❌ Login failed: " + (data.error || "Unknown error"));
+        alert(" Login failed: " + (data.error || "Unknown error"));
       }
     } catch (err) {
-      alert("🚨 Error: " + err.message);
+      alert(" Error: " + err.message);
     }
   };
 
