@@ -9,6 +9,8 @@ const Activity = require('./models/Activity');
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+const pdfParse = require("pdf-parse");
+const axios = require("axios");
 
 
 const app = express();
@@ -17,8 +19,8 @@ const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-app.use('/pdfs', express.static(path.join('E:/fsd lab/fsd project/database')));
-console.log("Serving PDFs from:", path.join('E:/fsd lab/fsd project/database'));
+app.use('/pdfs', express.static(path.join('E:/LARIA2/database')));
+console.log("Serving PDFs from:", path.join('E:/LARIA2/database'));
 
 
 
@@ -242,29 +244,109 @@ function parseMessage(text) {
 }
 
 
-
 app.post('/api/find-pdf', async (req, res) => {
   try {
     const { message, username } = req.body;
 
-    // Block if user isn't logged in
     if (!username) {
       return res.status(403).json({ ok: false, error: "Please log in to access PDFs." });
     }
 
-    //  Optional: check if user actually exists
     const user = await User.findOne({ username });
     if (!user) {
       return res.status(403).json({ ok: false, error: "Invalid user. Please log in again." });
     }
-    if (!message) return res.status(400).json({ ok: false, error: "message required" });
+
+    if (!message) {
+      return res.status(400).json({ ok: false, error: "message required" });
+    }
+
+    const lowerMessage = message.toLowerCase();
+
+    // ==============================
+    //  AI MODE DETECTION
+    // ==============================
+    const isAiQuery =
+  lowerMessage.includes("short note") ||
+  lowerMessage.includes("short summary") ||
+  lowerMessage.includes("summary") ||        // 🔥 ADD THIS
+  lowerMessage.includes("explain") ||
+  lowerMessage.includes("define") ||
+  lowerMessage.includes("what is");
+
+    if (isAiQuery) {
+      console.log(" AI Query Detected");
+
+      // Extract topic
+      let topic = lowerMessage
+  .replace(/short note on/i, "")
+  .replace(/short summary on/i, "")
+  .replace(/summary of/i, "")
+  .replace(/summary/i, "")
+  .replace(/explain/i, "")
+  .replace(/define/i, "")
+  .replace(/what is/i, "")
+  .replace(/give me/i, "")
+  .trim();
+
+      console.log("📌 Extracted topic:", topic);
+
+      // Find related PDFs (limit 3 for performance)
+      const relatedPdfs = await Pdf.find({
+        subject: new RegExp(topic.split(" ")[0], "i")
+      })
+      .limit(3)
+      .lean();
+
+      if (relatedPdfs.length === 0) {
+        return res.json({
+          ok: true,
+          aiAnswer: "No related PDFs found to generate answer."
+        });
+      }
+
+      let combinedText = "";
+
+      for (let pdf of relatedPdfs) {
+        const filePath = path.join(
+          "E:/LARIA2/database",
+          pdf.pdfUrl.split("/pdfs/")[1]
+        );
+
+        if (fs.existsSync(filePath)) {
+          const dataBuffer = fs.readFileSync(filePath);
+          const pdfData = await pdfParse(dataBuffer);
+          combinedText += pdfData.text.slice(0, 8000) + "\n\n"; // limit size
+        }
+      }
+
+      console.log("🚀 Sending to ML Service...");
+
+      const mlResponse = await axios.post("http://127.0.0.1:8000/ask", {
+        text: combinedText,
+        question: topic
+      });
+
+      return res.json({
+        ok: true,
+        aiAnswer: mlResponse.data.answer
+      });
+    }
+
+    // ==============================
+    // 📄 NORMAL PDF SEARCH MODE
+    // ==============================
 
     const { subject, regulation, year } = parseMessage(message);
-    console.log(' Parsed values:', { subject, regulation, year });
 
-    // If nothing parsed, return sample list
+    console.log('Parsed values:', { subject, regulation, year });
+
     if (!subject && !regulation && !year) {
-      const sample = await Pdf.find().limit(8).select('subject regulation year pdfUrl').lean();
+      const sample = await Pdf.find()
+        .limit(8)
+        .select('subject regulation year pdfUrl')
+        .lean();
+
       return res.json({
         ok: true,
         found: false,
@@ -273,95 +355,48 @@ app.post('/api/find-pdf', async (req, res) => {
       });
     }
 
-    // Build case-insensitive query
     const query = {};
     if (subject) query.subject = new RegExp(subject, 'i');
     if (regulation) query.regulation = new RegExp(regulation, 'i');
     if (year) query.year = new RegExp(year, 'i');
 
+    let pdfs = await Pdf.find(query).lean();
 
-    console.log(' MongoDB Query:', JSON.stringify(query, null, 2));
+    if (pdfs.length === 0) {
+      const matches = await Pdf.find(query)
+        .limit(6)
+        .select('subject regulation year pdfUrl name')
+        .lean();
 
-    // Try finding exact match
-    // Try finding all matching PDFs
-let pdfs = await Pdf.find(query).lean();
-console.log('Matches found:', pdfs.length);
+      if (matches.length > 0) {
+        return res.json({
+          ok: true,
+          found: false,
+          message: "No exact match. Here are similar PDFs:",
+          matches
+        });
+      }
 
-// If no matches found, try relaxed search
-if (pdfs.length === 0) {
-  console.log('Trying relaxed search...');
+      const sample = await Pdf.find()
+        .limit(8)
+        .select('subject regulation year pdfUrl')
+        .lean();
 
-  const relaxedQuery = {};
-  if (subject) relaxedQuery.subject = new RegExp(subject, 'i');
-  if (regulation) relaxedQuery.regulation = new RegExp(regulation, 'i');
-  if (year) relaxedQuery.year = year;
-
-  console.log('🔎 Relaxed query:', JSON.stringify(relaxedQuery, null, 2));
-
-  const matches = await Pdf.find(relaxedQuery)
-  .limit(6)
-  .select('subject regulation year pdfUrl name')
-  .lean();
-
-
-  console.log(`Found ${matches.length} relaxed matches`);
-
-  if (matches.length > 0) {
-    return res.json({
-      ok: true,
-      found: false,
-      message: "No exact match. Here are similar PDFs:",
-      matches
-    });
-  }
-
-  // If still no matches, try subject only
-  if (subject) {
-    console.log('Trying subject-only search...');
-    const subjectOnly = await Pdf.find({
-  subject: new RegExp(subject, 'i')
-})
-  .limit(6)
-  .select(' subject regulation year pdfUrl name')
-  .lean();
-
-    console.log(`Found ${subjectOnly.length} subject matches`);
-
-    if (subjectOnly.length > 0) {
       return res.json({
         ok: true,
         found: false,
-        message: `Found these PDFs for "${subject}":`,
-        matches: subjectOnly
+        message: "No matches found. Here are some available PDFs:",
+        matches: sample
       });
     }
-  }
 
-  // No matches at all - show some samples
-  console.log('No matches found, returning sample PDFs');
-  const sample = await Pdf.find()
-  .limit(8)
-  .select(' subject regulation year pdfUrl')
-  .lean();
-
-  return res.json({
-    ok: true,
-    found: false,
-    message: "No matches found. Here are some available PDFs:",
-    matches: sample
-  });
-}
-
-// ✅ Return all exact matches
-console.log('Exact matches found!');
-return res.json({ ok: true, found: true, pdfs });
+    return res.json({ ok: true, found: true, pdfs });
 
   } catch (err) {
     console.error('Error in /api/find-pdf:', err);
     return res.status(500).json({ ok: false, error: err.message });
   }
 });
-
 /** Optional admin route: list all PDFs */
 app.get('/api/list-pdfs', async (req, res) => {
   try {
@@ -384,7 +419,7 @@ app.get('/test', (req, res) => {
 });
 
 // === Dynamic PDF Management (Auto Folder Creation: regulation/year/subject) ===
-const ROOT_DIR = "E:/fsd lab/fsd project/database";
+const ROOT_DIR = "E:/LARIA2/database";
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -436,7 +471,7 @@ app.post("/api/upload-pdf", upload.single("pdf"), async (req, res) => {
 
     res.json({
       ok: true,
-      message: "✅ PDF uploaded successfully!",
+      message: "PDF uploaded successfully!",
       pdf: newPdf,
       storedPath: relativePath,
     });
@@ -466,26 +501,49 @@ app.delete("/api/delete-pdf/:id", async (req, res) => {
     if (!pdf) return res.status(404).json({ ok: false, error: "PDF not found" });
 
     // Delete file from filesystem
-    const filePath = path.join("E:/fsd lab/fsd project/database", pdf.pdfUrl.split("/pdfs/")[1]);
+    const filePath = path.join("E:/LARIA2/database", pdf.pdfUrl.split("/pdfs/")[1]);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
-      console.log(`🗑️ Deleted file: ${filePath}`);
+      console.log(`Deleted file: ${filePath}`);
     }
 
     // Delete from MongoDB
     await Pdf.findByIdAndDelete(id);
 
-    res.json({ ok: true, message: "✅ PDF deleted successfully" });
+    res.json({ ok: true, message: "PDF deleted successfully" });
   } catch (err) {
     console.error("Error deleting PDF:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
+app.post("/api/summarize-pdf", async (req, res) => {
+  try {
+    const { pdfId } = req.body;
 
+    const pdf = await Pdf.findById(pdfId);
+    if (!pdf) return res.status(404).json({ ok: false });
 
-// 🧱 Global error handler to avoid HTML error pages
+    const filePath = path.join("E:/LARIA2/database", pdf.pdfUrl.split("/pdfs/")[1]);
+    const dataBuffer = fs.readFileSync(filePath);
+    const pdfData = await pdfParse(dataBuffer);
+
+    const response = await axios.post("http://127.0.0.1:8000/ask", {
+      text: pdfData.text.replace(/\s+/g, " ").trim().slice(0, 8000),
+      question: "Give a brief academic summary of this document"
+    });
+    console.log("PDF URL:", pdf.pdfUrl);
+    console.log("Resolved path:", pdf.pdfUrl.split("/pdfs/")[1]);
+    console.log("Extracted text length:", pdfData.text.length);
+    console.log("First 300 chars:", pdfData.text.slice(0, 300));
+    res.json({ ok: true, answer: response.data.answer });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false });
+  }
+});
 app.use((err, req, res, next) => {
-  console.error("🔥 Unhandled error:", err);
+  console.error(" Unhandled error:", err);
   res.status(500).json({ ok: false, error: err.message });
 });
 

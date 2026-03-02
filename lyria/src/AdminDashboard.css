@@ -1,23 +1,38 @@
-.center-nav button.active {
-  background: #00d4ff;
-  color: #000;
-  border-color: #00d4ff;
+/* =========================================
+   👑 Admin Top Bar
+========================================= */
+
+.admin-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 30px;
+  background: linear-gradient(135deg, #7c5cff, #4f9cff);
+  color: white;
 }
 
-.data-section {
-  background: rgba(30,30,40,0.8);
-  padding: 20px;
-  border-radius: 10px;
-  margin-top: 20px;
+.admin-tabs {
+  display: flex;
+  gap: 18px;
 }
 
-.admin-table {
-  width: 100%;
-  border-collapse: collapse;
+.admin-tab-button {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  padding: 8px 18px;
+  border-radius: 25px;
+  color: white;
+  font-weight: 500;
+  cursor: pointer;
+  transition: 0.25s ease;
 }
 
-.admin-table th, .admin-table td {
-  border: 1px solid #555;
-  padding: 8px;
-  text-align: center;
+.admin-tab-button:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.admin-tab-button.active {
+  background: white;
+  color: #4f46e5;
+  font-weight: 600;
 }

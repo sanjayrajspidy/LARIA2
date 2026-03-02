@@ -36,9 +36,9 @@ function Bot({ username }) {
       });
 
       const data = await resp.json();
-      console.log("✅ Activity API response:", data);
+      console.log(" Activity API response:", data);
     } catch (err) {
-      console.error("❌ Failed to log activity:", err);
+      console.error(" Failed to log activity:", err);
     }
   };
 
@@ -69,7 +69,7 @@ function Bot({ username }) {
         setMessages((prev) => [
           ...prev,
           {
-            text: data.error || "⚠️ Please login to access PDFs.",
+            text: data.error || " Please login to access PDFs.",
             sender: "bot",
           },
         ]);
@@ -81,7 +81,15 @@ function Bot({ username }) {
 
       const data = await resp.json();
       console.log("📁 /api/find-pdf response:", data);
-
+      //  AI MODE RESPONSE
+if (data.aiAnswer) {
+  setMessages(prev => [
+    ...prev,
+    { text: `AI Answer for "${text}"`, sender: "bot" },
+    { text: data.aiAnswer, sender: "bot" }
+  ]);
+  return;
+}
       if (!data.ok) {
         setMessages((prev) => [
           ...prev,
@@ -100,14 +108,14 @@ function Bot({ username }) {
           ]);
         } else if (pdfs.length === 1) {
           const pdf = pdfs[0];
-          const botText = `✅ Found: ${
+          const botText = `Found: ${
             pdf.name || pdf.subject + " " + (pdf.regulation || "")
           }`;
           setMessages((prev) => [
             ...prev,
             { text: botText, sender: "bot" },
             {
-              text: `📄 PDF Available for Download`,
+              text: ` PDF Available for Download`,
               sender: "bot",
               meta: { pdf },
             },
@@ -116,7 +124,7 @@ function Bot({ username }) {
           setMessages((prev) => [
             ...prev,
             {
-              text: `✅ Found ${pdfs.length} PDFs for your request:`,
+              text: `Found ${pdfs.length} PDFs for your request:`,
               sender: "bot",
             },
             { text: "", sender: "bot", meta: { suggestions: pdfs } },
@@ -159,7 +167,7 @@ function Bot({ username }) {
       setMessages((prev) => [
         ...prev,
         {
-          text: `⚠️ Connection error: ${err.message}`,
+          text: ` Connection error: ${err.message}`,
           sender: "bot",
         },
       ]);
@@ -185,41 +193,81 @@ function Bot({ username }) {
           >
             {m.text && <div>{m.text}</div>}
 
-            {/* ===== Single PDF Card ===== */}
-            {m.meta && m.meta.pdf && (
-              <div className="pdf-card">
-                <div className="pdf-header">
-                  🗂️ {m.meta.pdf.subject}{" "}
-                  {m.meta.pdf.regulation && `(${m.meta.pdf.regulation})`}
-                  {m.meta.pdf.year && ` - ${m.meta.pdf.year} Year`}
-                </div>
+          {/* ===== Single PDF Card ===== */}
+{m.meta && m.meta.pdf && (
+  <div className="pdf-card">
+    <div className="pdf-header">
+      📘 {m.meta.pdf.subject}{" "}
+      {m.meta.pdf.regulation && `(${m.meta.pdf.regulation})`}
+      {m.meta.pdf.year && ` - ${m.meta.pdf.year} Year`}
+    </div>
 
-                <div className="pdf-buttons">
-                  <button
-                    type="button"
-                    className="pdf-download"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      await logActivity(m.meta.pdf._id, "download");
-                      window.open(m.meta.pdf.pdfUrl, "_blank");
-                    }}
-                  >
-                    🡇 Download
-                  </button>
-                  <button
-                    type="button"
-                    className="pdf-view"
-                    onClick={async (e) => {
-                      e.preventDefault();
-                      await logActivity(m.meta.pdf._id, "view");
-                      window.open(m.meta.pdf.pdfUrl, "_blank");
-                    }}
-                  >
-                    👀 View
-                  </button>
-                </div>
-              </div>
-            )}
+    <div className="pdf-buttons">
+
+      {/* 🡇 DOWNLOAD */}
+      <button
+        type="button"
+        className="pdf-download"
+        onClick={async (e) => {
+          e.preventDefault();
+          if (!m.meta?.pdf) return;
+
+          await logActivity(m.meta.pdf._id, "download");
+          window.open(m.meta.pdf.pdfUrl, "_blank");
+        }}
+      >
+        🡇 Download
+      </button>
+
+      {/* 👀 VIEW */}
+      <button
+        type="button"
+        className="pdf-view"
+        onClick={async (e) => {
+          e.preventDefault();
+          if (!m.meta?.pdf) return;
+
+          await logActivity(m.meta.pdf._id, "view");
+          window.open(m.meta.pdf.pdfUrl, "_blank");
+        }}
+      >
+        👀 View
+      </button>
+      <button
+  className="pdf-summary"
+  onClick={async () => {
+    try {
+      setLoading(true);
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
+
+      const resp = await fetch(`${backendUrl}/api/summarize-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdfId: m.meta.pdf._id })
+      });
+
+      const data = await resp.json();
+
+      if (data.ok) {
+        setMessages(prev => [
+          ...prev,
+          { text: " Summary:", sender: "bot" },
+          { text: data.answer, sender: "bot" }
+        ]);
+      }
+
+    } catch (err) {
+      alert("Summarization failed");
+    } finally {
+      setLoading(false);
+    }
+  }}
+>
+  Summarize
+</button>
+    </div>
+  </div>
+)}
 
             {/* ===== Suggestions Section ===== */}
             {m.meta && m.meta.suggestions && m.meta.suggestions.length > 0 && (
@@ -255,6 +303,38 @@ function Bot({ username }) {
                         >
                           👀 View
                         </button>
+                        <button
+  className="pdf-summary"
+  onClick={async () => {
+    try {
+      setLoading(true);
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || "http://localhost:5000";
+
+      const resp = await fetch(`${backendUrl}/api/summarize-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdfId: s._id })
+      });
+
+      const data = await resp.json();
+
+      if (data.ok) {
+        setMessages(prev => [
+          ...prev,
+          { text: "🧠 Summary:", sender: "bot" },
+          { text: data.answer, sender: "bot" }
+        ]);
+      }
+
+    } catch (err) {
+      alert("Summarization failed");
+    } finally {
+      setLoading(false);
+    }
+  }}
+>
+  Summarize
+</button>
                       </div>
                     )}
                   </div>

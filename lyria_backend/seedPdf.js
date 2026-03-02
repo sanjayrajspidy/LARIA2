@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const Pdf = require('./models/Pdf');
 
 // === CONFIG ===
-const ROOT_FOLDER = 'E:/fsd lab/fsd project/database';  
+const ROOT_FOLDER = 'E:/LARIA2/database';  
 const SERVER_BASE_URL = 'http://localhost:5000/pdfs';   
 
 // === CONNECT TO MONGODB ===
